@@ -1,0 +1,202 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getMongoDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
+import { isAuthenticated } from '@/lib/auth';
+import Transaction, { TransactionStatus, TransactionType } from '@/models/Transaction';
+import Transaction, { TransactionStatus, TransactionType } from '@/models/Transaction';
+
+// API để lấy danh sách yêu cầu nạp tiền (dành cho Admin)
+export async function GET(req: NextRequest) {
+  try {
+    // Xác thực admin
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Create a cookie store from the request headers
+    const cookies = cookieHeader.split(';').reduce((cookies, cookie) => {
+      const [name, value] = cookie.split('=').map(c => c.trim());
+      cookies[name] = value;
+      return cookies;
+    }, {} as Record<string, string>);
+
+    // Check if admin is authenticated
+    if (cookies['admin-session'] !== 'authenticated') {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Kết nối DB
+    const db = await getMongoDb();
+
+    // Parse query params
+    const url = new URL(req.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '10');
+    const status = url.searchParams.get('status') as TransactionStatus | null;
+    const search = url.searchParams.get('search') || '';
+    const skip = (page - 1) * limit;
+
+    // Tạo filter
+    const filter: any = { type: 'deposit' };
+    
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    
+    if (search) {
+      filter.$or = [
+        { username: { $regex: search, $options: 'i' } },
+        { transactionId: { $regex: search, $options: 'i' } },
+        { 'bankDetails.accountNumber': { $regex: search, $options: 'i' } },
+        { transactionCode: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Lấy tổng số bản ghi
+    const total = await db.collection('transactions').countDocuments(filter);
+    const totalPages = Math.ceil(total / limit);
+
+    // Lấy dữ liệu phân trang
+    const deposits = await db.collection('transactions')
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          amount: 1,
+          status: 1,
+          proofImage: 1,
+          notes: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          userId: 1,
+          'userDetails._id': 1,
+          'userDetails.username': 1,
+          'userDetails.fullName': 1,
+          'userDetails.phone': 1
+        }
+      }
+    ];
+
+    const transactions = await db.collection('transactions').aggregate(pipeline).toArray();
+
+    return NextResponse.json({
+      transactions,
+      total,
+      totalPages,
+      currentPage: page
+    });
+  } catch (error) {
+    console.error('Error fetching deposits:', error);
+    return NextResponse.json(
+      { message: 'Lỗi khi tải danh sách yêu cầu nạp tiền' },
+      { status: 500 }
+    );
+  }
+}
+
+// API để phê duyệt hoặc từ chối yêu cầu nạp tiền
+export async function PUT(req: NextRequest) {
+  try {
+    // Xác thực admin
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Create a cookie store from the request headers
+    const cookies = cookieHeader.split(';').reduce((cookies, cookie) => {
+      const [name, value] = cookie.split('=').map(c => c.trim());
+      cookies[name] = value;
+      return cookies;
+    }, {} as Record<string, string>);
+
+    // Check if admin is authenticated
+    if (cookies['admin-session'] !== 'authenticated') {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Parse request body
+    const body = await req.json();
+    const { transactionId, status, note } = body as {
+      transactionId: string;
+      status: TransactionStatus;
+      note?: string;
+    };
+
+    if (!transactionId || !status) {
+      return NextResponse.json(
+        { message: 'Thiếu thông tin bắt buộc' },
+        { status: 400 }
+      );
+    }
+
+    // Kết nối DB
+    const db = await getMongoDb();
+
+    // Tìm giao dịch
+    const transaction = await db.collection('transactions').findOne({
+      _id: new ObjectId(transactionId),
+      type: 'deposit'
+    });
+
+    if (!transaction) {
+      return NextResponse.json(
+        { message: 'Không tìm thấy yêu cầu nạp tiền' },
+        { status: 404 }
+      );
+    }
+
+    // Kiểm tra trạng thái hiện tại
+    if (transaction.status !== 'pending') {
+      return NextResponse.json(
+        { message: 'Yêu cầu này đã được xử lý trước đó' },
+        { status: 400 }
+      );
+    }
+
+    // Cập nhật trạng thái
+    const updateData: any = {
+      status,
+      updatedAt: new Date(),
+      ...(note && { note })
+    };
+
+    if (status === 'approved' || status === 'rejected') {
+      updateData.processedAt = new Date();
+      updateData.processedBy = new ObjectId('admin-id-placeholder'); // Thay bằng ID admin thực tế
+    }
+
+    const session = await db.startSession();
+    session.startTransaction();
+
+    try {
+      // Cập nhật trạng thái giao dịch
+      await db.collection('transactions').updateOne(
+        { _id: new ObjectId(transactionId) },
+        { $set: updateData },
+        { session }
+      );
+
+      // Nếu được phê duyệt, cộng tiền vào tài khoản người dùng
+      if (status === 'approved') {
+        await db.collection('users').updateOne(
+          { _id: new ObjectId(transaction.userId) },
+          { $inc: { 'balance.available': transaction.amount } },
+          { session }
+        );
+      }
+
+  } catch (error) {
+    console.error('Error processing deposit request:', error);
+    return NextResponse.json({ message: 'Đã xảy ra lỗi khi xử lý yêu cầu nạp tiền' }, { status: 500 });
+  }
+}

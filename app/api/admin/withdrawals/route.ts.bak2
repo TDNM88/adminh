@@ -1,0 +1,187 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getMongoDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
+
+// API to get withdrawal requests list (for Admin)
+export async function GET(req: NextRequest) {
+  try {
+    // Authenticate admin
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Create a cookie store from the request headers
+    const cookies = cookieHeader.split(';').reduce((cookies, cookie) => {
+      const [name, value] = cookie.split('=').map(c => c.trim());
+      cookies[name] = value;
+      return cookies;
+    }, {} as Record<string, string>);
+
+    // Check if admin is authenticated
+    if (cookies['admin-session'] !== 'authenticated') {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Connect to DB
+    const db = await getMongoDb();
+
+    // Parse query params
+    const url = new URL(req.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '10');
+    const status = url.searchParams.get('status');
+    const skip = (page - 1) * limit;
+
+    // Create filter
+    const filter: any = {};
+    if (status) {
+      filter.status = status;
+    }
+
+    // Pipeline aggregation to get user information
+    const pipeline = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'userDetails'
+        }
+      },
+      { $unwind: '$userDetails' },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          amount: 1,
+          bank: 1,
+          status: 1,
+          notes: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          'userDetails._id': 1,
+          'userDetails.username': 1,
+          'userDetails.fullName': 1,
+          'userDetails.phone': 1
+        }
+      }
+    ];
+
+    const withdrawals = await db.collection('withdrawals').aggregate(pipeline).toArray();
+
+    // Get total count for pagination
+    const total = await db.collection('withdrawals').countDocuments(filter);
+
+    return NextResponse.json({
+      withdrawals,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
+
+  } catch (error) {
+    console.error('Error fetching withdrawal requests:', error);
+    return NextResponse.json({ message: 'Đã xảy ra lỗi khi lấy danh sách yêu cầu rút tiền' }, { status: 500 });
+  }
+}
+
+// API to process withdrawal request (approve, processing, complete, reject)
+export async function PUT(req: NextRequest) {
+  try {
+    // Authenticate admin
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Create a cookie store from the request headers
+    const cookies = cookieHeader.split(';').reduce((cookies, cookie) => {
+      const [name, value] = cookie.split('=').map(c => c.trim());
+      cookies[name] = value;
+      return cookies;
+    }, {} as Record<string, string>);
+
+    // Check if admin is authenticated
+    if (cookies['admin-session'] !== 'authenticated') {
+      return NextResponse.json({ message: 'Bạn cần đăng nhập' }, { status: 401 });
+    }
+
+    // Parse request body
+    const { withdrawalId, status, notes } = await req.json();
+
+    if (!withdrawalId || !status) {
+      return NextResponse.json({ message: 'Thiếu thông tin cần thiết' }, { status: 400 });
+    }
+
+    if (!['processing', 'completed', 'rejected'].includes(status)) {
+      return NextResponse.json({ message: 'Trạng thái không hợp lệ' }, { status: 400 });
+    }
+
+    // Connect to DB
+    const db = await getMongoDb();
+
+    // Get withdrawal request details
+    const withdrawal = await db.collection('withdrawals').findOne({ _id: new ObjectId(withdrawalId) });
+    if (!withdrawal) {
+      return NextResponse.json({ message: 'Không tìm thấy yêu cầu rút tiền' }, { status: 404 });
+    }
+
+    // If request is already completed or rejected
+    if (withdrawal.status === 'completed' || withdrawal.status === 'rejected') {
+      return NextResponse.json({ message: 'Yêu cầu này đã được xử lý hoàn tất' }, { status: 400 });
+    }
+
+    // Update withdrawal status
+    await db.collection('withdrawals').updateOne(
+      { _id: new ObjectId(withdrawalId) },
+      {
+        $set: {
+          status,
+          notes: notes || withdrawal.notes || '',
+          processedBy: new ObjectId('000000000000000000000001'), // Hardcoded admin ID
+          processedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    // If rejected, refund the user's balance
+    if (status === 'rejected') {
+      await db.collection('users').updateOne(
+        { _id: withdrawal.user },
+        { $inc: { 'balance.available': withdrawal.amount } }
+      );
+    }
+
+    // Get updated withdrawal details to return
+    const updatedWithdrawal = await db.collection('withdrawals').findOne({ _id: new ObjectId(withdrawalId) });
+
+    // Create notification for user
+    const notificationMessage = 
+      status === 'processing' ? 'Yêu cầu rút tiền của bạn đang được xử lý' :
+      status === 'completed' ? 'Yêu cầu rút tiền của bạn đã được hoàn thành' :
+      'Yêu cầu rút tiền của bạn đã bị từ chối';
+
+    await db.collection('notifications').insertOne({
+      user: withdrawal.user,
+      type: 'withdrawal',
+      message: notificationMessage,
+      read: false,
+      createdAt: new Date()
+    });
+
+    return NextResponse.json({
+      message: `Đã cập nhật trạng thái yêu cầu rút tiền thành ${status}`,
+      withdrawal: updatedWithdrawal
+    });
+
+  } catch (error) {
+    console.error('Error processing withdrawal request:', error);
+    return NextResponse.json({ message: 'Đã xảy ra lỗi khi xử lý yêu cầu rút tiền' }, { status: 500 });
+  }
+}
