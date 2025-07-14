@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { UserMenu } from "@/components/user-menu"
 import { CustomersPage } from "@/components/customers-page"
+import { SettingsPage as SettingsPageComponent } from "@/components/settings-page"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -1404,7 +1405,7 @@ export const AdminDashboard = () => {
             {activePage === "trading-sessions" && <TradingSessionsPage />}
             {activePage === "deposit-requests" && <DepositRequestsPage />}
             {activePage === "withdrawal-requests" && <WithdrawalRequestsPage />}
-            {activePage === "settings" && <SettingsPage />}
+            {activePage === "settings" && <SettingsPageComponent />}
           </main>
         </div>
       </SidebarProvider>
