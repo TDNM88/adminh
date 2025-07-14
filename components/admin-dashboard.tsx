@@ -656,38 +656,34 @@ function TradingSessionsPage() {
       participantCount: Math.floor(Math.random() * 50) + 10
     };
 
-    // Create past sessions (29 sessions)
-    const pastSessions: SessionData[] = [];
+    // Create future sessions (29 sessions)
+    const futureSessions: SessionData[] = [];
     for (let i = 1; i <= 29; i++) {
       const sessionTime = new Date(currentSessionTime);
-      sessionTime.setMinutes(sessionTime.getMinutes() - i);
+      sessionTime.setMinutes(sessionTime.getMinutes() + i);
       sessionTime.setSeconds(0, 0); // Set seconds to 00 and milliseconds to 000
       
       const sessionEnd = new Date(sessionTime);
       sessionEnd.setSeconds(59, 999); // Set to giây 59 of the same minute
       
       const sessionId = formatSessionId(sessionTime);
-      const totalBet = Math.floor(Math.random() * 10000000) + 1000000;
-      const isWin = Math.random() > 0.5;
-      const result = isWin ? 'Lên' : 'Xuống';
       
-      pastSessions.push({
+      futureSessions.push({
         id: sessionId,
         _id: sessionId,
         sessionId: sessionId,
         startTime: sessionTime.toISOString(),
         endTime: sessionEnd.toISOString(),
-        status: 'completed',
-        result: result,
-        totalBet: totalBet,
-        totalWin: isWin ? Math.floor(totalBet * 0.95) : 0,
-        participantCount: Math.floor(Math.random() * 50) + 10
+        status: 'pending',
+        totalBet: 0,
+        totalWin: 0,
+        participantCount: 0
       });
     }
 
-    // Set current session and all sessions
+    // Set current session and all sessions (current + future)
     setCurrentSession(currentSessionObj);
-    setSessions([currentSessionObj, ...pastSessions]);
+    setSessions([currentSessionObj, ...futureSessions]);
     
     // Calculate remaining seconds in the current minute
     // Since we want to count down from the actual seconds of the current minute to giây 59

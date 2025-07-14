@@ -66,7 +66,7 @@ export async function verifyToken(token: string) {
 }
 
 // Generate JWT token
-export async function generateToken(payload: any) {
+export function generateToken(payload: any) {
   return sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
@@ -110,6 +110,11 @@ export async function comparePassword(plainPassword: string, hashedPassword: str
   // In a real application, you would use a proper comparison function from bcrypt
   // For simplicity, we're using a basic comparison here
   // This should be replaced with proper password comparison in production
-  const hashedInput = await hashPassword(plainPassword);
-  return hashedInput === hashedPassword;
+  try {
+    const hashedInput = await hashPassword(plainPassword);
+    return hashedInput === hashedPassword;
+  } catch (error) {
+    console.error('Error comparing passwords:', error);
+    return false;
+  }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getMongoDb } from '@/lib/mongodb';
+import { getMongoDb } from '@/lib/db';
 import { ObjectId } from 'mongodb';
 
 export async function PUT(
@@ -12,7 +12,23 @@ export async function PUT(
     // and adds the user to the request object
     
     // Parse the request body
-    const { fullName, email, phone, status } = await request.json();
+    const { 
+      fullName, 
+      email, 
+      phone, 
+      address,
+      idNumber,
+      dateOfBirth,
+      referralCode,
+      status,
+      balance,
+      vipLevel,
+      verified,
+      cccdFrontVerified,
+      cccdBackVerified,
+      role,
+      notes
+    } = await request.json();
     const userId = params.id;
 
     // Input validation
@@ -43,7 +59,25 @@ export async function PUT(
         ...(fullName !== undefined && { fullName }),
         ...(email !== undefined && { email }),
         ...(phone !== undefined && { phone }),
-        ...(status !== undefined && { 'status.active': status.active }),
+        ...(address !== undefined && { address }),
+        ...(idNumber !== undefined && { idNumber }),
+        ...(dateOfBirth !== undefined && { dateOfBirth }),
+        ...(referralCode !== undefined && { referralCode }),
+        ...(status !== undefined && { 
+          'status.active': status.active,
+          'status.betLocked': status.betLocked,
+          'status.withdrawLocked': status.withdrawLocked 
+        }),
+        ...(balance !== undefined && { 
+          'balance.available': balance.available,
+          'balance.frozen': balance.frozen 
+        }),
+        ...(vipLevel !== undefined && { vipLevel }),
+        ...(verified !== undefined && { verified }),
+        ...(cccdFrontVerified !== undefined && { cccdFrontVerified }),
+        ...(cccdBackVerified !== undefined && { cccdBackVerified }),
+        ...(role !== undefined && { role }),
+        ...(notes !== undefined && { notes }),
         updatedAt: new Date()
       }
     };
