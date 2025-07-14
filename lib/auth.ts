@@ -104,3 +104,12 @@ export async function hashPassword(password: string): Promise<string> {
   // This should be replaced with proper password hashing in production
   return Buffer.from(password).toString('base64');
 }
+
+// Compare password function for login authentication
+export async function comparePassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
+  // In a real application, you would use a proper comparison function from bcrypt
+  // For simplicity, we're using a basic comparison here
+  // This should be replaced with proper password comparison in production
+  const hashedInput = await hashPassword(plainPassword);
+  return hashedInput === hashedPassword;
+}
