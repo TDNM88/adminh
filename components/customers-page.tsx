@@ -103,8 +103,8 @@ interface Customer {
   verified?: boolean
   cccdFront?: boolean
   cccdBack?: boolean
-  cccdFrontImage?: string
-  cccdBackImage?: string
+  cccdFrontImage?: string | null
+  cccdBackImage?: string | null
   createdAt?: string | Date
   lastLogin?: string | Date
   role?: string

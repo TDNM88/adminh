@@ -66,7 +66,7 @@ export async function verifyToken(token: string) {
 }
 
 // Generate JWT token
-export function generateToken(payload: any) {
+export async function generateToken(payload: any) {
   return sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
